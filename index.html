@@ -3,15 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Browser PDF Combiner</title>
+    <title>Browser PDF Combiner & Editor</title>
     
-    <!-- pdf-lib library -->
     <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
 
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            max-width: 600px;
+            max-width: 650px;
             margin: 50px auto;
             padding: 20px;
             text-align: center;
@@ -23,74 +22,54 @@
             border-radius: 10px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
-        input[type="file"] {
-            margin: 20px 0;
-            padding: 10px;
-        }
+        input[type="file"] { margin: 20px 0; padding: 10px; }
         button {
-            background-color: #007bff;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            font-size: 16px;
-            border-radius: 5px;
-            cursor: pointer;
-            margin-top: 15px;
+            background-color: #007bff; color: white; border: none;
+            padding: 10px 20px; font-size: 16px; border-radius: 5px;
+            cursor: pointer; margin-top: 15px;
         }
-        button:hover {
-            background-color: #0056b3;
-        }
-        button:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
-        }
-        #status {
-            margin-top: 20px;
-            font-weight: bold;
-            color: #333;
-        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #cccccc; cursor: not-allowed; }
+        #status { margin-top: 20px; font-weight: bold; color: #333; }
 
-        /* --- NEW STYLES FOR THE LIST --- */
-        #fileList {
-            list-style-type: none;
-            padding: 0;
-            margin: 20px 0;
-            text-align: left;
-        }
+        /* Updated List Styles */
+        #fileList { list-style-type: none; padding: 0; margin: 20px 0; text-align: left; }
         .file-item {
-            background-color: #e9ecef;
-            margin: 5px 0;
-            padding: 10px 15px;
-            border-radius: 5px;
-            border: 1px solid #ced4da;
-            cursor: grab; /* Shows a 'grab' hand icon */
-            display: flex;
-            align-items: center;
+            background-color: #e9ecef; margin: 5px 0; padding: 10px 15px;
+            border-radius: 5px; border: 1px solid #ced4da;
+            display: flex; align-items: center; justify-content: space-between;
         }
-        .file-item:active {
-            cursor: grabbing; /* Shows a closed fist when dragging */
-            opacity: 0.7;
+        .drag-area {
+            display: flex; align-items: center; cursor: grab; flex-grow: 1;
         }
-        /* A little icon to show it's draggable */
-        .drag-handle {
-            margin-right: 10px;
-            color: #6c757d;
-            font-size: 20px;
+        .drag-area:active { cursor: grabbing; }
+        .drag-handle { margin-right: 10px; color: #6c757d; font-size: 20px; }
+        .file-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+        
+        /* New Styles for Page Input and Delete */
+        .controls { display: flex; align-items: center; gap: 10px; }
+        .page-input {
+            width: 120px; padding: 5px; border: 1px solid #ccc; border-radius: 4px;
+            font-size: 14px;
         }
+        .delete-btn {
+            background-color: #dc3545; padding: 5px 10px; font-size: 14px;
+            margin-top: 0;
+        }
+        .delete-btn:hover { background-color: #c82333; }
     </style>
 </head>
 <body>
 
     <div class="container">
-        <h2>Merge PDFs Locally</h2>
-        <p>Select PDFs, then <strong>drag and drop the list items below</strong> to set the correct order.</p>
+        <h2>Merge & Trim PDFs</h2>
+        <p>Drag to reorder. Leave "Pages" blank to keep all pages, or specify ranges (e.g., <strong>1, 3-5</strong>).</p>
         
         <input type="file" id="fileInput" accept="application/pdf" multiple>
         
-        <!-- NEW: This is where our reorderable list will appear -->
         <ul id="fileList"></ul>
         
-        <button id="mergeBtn" style="display:none;">Combine PDFs</button>
+        <button id="mergeBtn" style="display:none;">Process PDFs</button>
         
         <div id="status"></div>
     </div>
@@ -101,87 +80,135 @@
         const statusDiv = document.getElementById('status');
         const fileListContainer = document.getElementById('fileList');
 
-        // NEW: An array to hold our files so we can change their order
-        let filesArray = []; 
-        let dragStartIndex; // Remembers which item we picked up
+        // UPDATED: Now stores objects { file: FileObject, pages: "1-3" }
+        let filesData = []; 
+        let dragStartIndex;
 
-        // Listen for when files are selected
         fileInput.addEventListener('change', (e) => {
-            // Convert the unchangeable FileList into a flexible Array
-            filesArray = Array.from(e.target.files);
+            // Add new files to our array, setting page input to empty initially
+            const newFiles = Array.from(e.target.files).map(f => ({ file: f, pages: "" }));
+            filesData = filesData.concat(newFiles);
             
-            // Show the merge button if we have files
-            mergeBtn.style.display = filesArray.length > 0 ? 'inline-block' : 'none';
-            statusDiv.innerText = "";
-            
-            renderFileList();
+            updateUI();
+            fileInput.value = ""; // Reset input so you can select the same file again if needed
         });
 
-        // NEW: Function to draw the list on the screen
-        function renderFileList() {
-            fileListContainer.innerHTML = ''; // Clear the current list
+        function updateUI() {
+            mergeBtn.style.display = filesData.length > 0 ? 'inline-block' : 'none';
+            statusDiv.innerText = "";
+            renderFileList();
+        }
 
-            filesArray.forEach((file, index) => {
+        function renderFileList() {
+            fileListContainer.innerHTML = ''; 
+
+            filesData.forEach((item, index) => {
                 const li = document.createElement('li');
                 li.className = 'file-item';
-                li.draggable = true; // Makes HTML5 drag and drop work
-                li.dataset.index = index; // Store the current position
+                li.draggable = true;
+                li.dataset.index = index;
 
-                // Add a visual drag handle icon (≡) and the file name
-                li.innerHTML = `<span class="drag-handle">&#8801;</span> ${file.name}`;
+                li.innerHTML = `
+                    <div class="drag-area">
+                        <span class="drag-handle">&#8801;</span>
+                        <span class="file-name" title="${item.file.name}">${item.file.name}</span>
+                    </div>
+                    <div class="controls">
+                        <input type="text" class="page-input" placeholder="e.g. 1, 3-5" value="${item.pages}">
+                        <button class="delete-btn">X</button>
+                    </div>
+                `;
 
-                // Drag and Drop Events
+                // Event Listeners for this list item
                 li.addEventListener('dragstart', handleDragStart);
                 li.addEventListener('dragover', handleDragOver);
                 li.addEventListener('drop', handleDrop);
                 li.addEventListener('dragenter', e => e.preventDefault());
 
+                // Save typed page numbers so they aren't lost when dragging
+                const pageInput = li.querySelector('.page-input');
+                pageInput.addEventListener('input', (e) => {
+                    filesData[index].pages = e.target.value;
+                });
+
+                // Delete Button Logic
+                const deleteBtn = li.querySelector('.delete-btn');
+                deleteBtn.addEventListener('click', () => {
+                    filesData.splice(index, 1); // Remove from array
+                    updateUI(); // Redraw
+                });
+
                 fileListContainer.appendChild(li);
             });
         }
 
-        // --- Drag and Drop Logic ---
-        function handleDragStart(e) {
-            dragStartIndex = +e.target.closest('li').dataset.index;
-        }
-
-        function handleDragOver(e) {
-            e.preventDefault(); // Required to allow dropping
-        }
-
+        // Drag and Drop Functions
+        function handleDragStart(e) { dragStartIndex = +e.target.closest('li').dataset.index; }
+        function handleDragOver(e) { e.preventDefault(); }
         function handleDrop(e) {
             e.preventDefault();
             const dragEndIndex = +e.target.closest('li').dataset.index;
-            
-            // Move the file in our array
-            const itemToMove = filesArray.splice(dragStartIndex, 1)[0];
-            filesArray.splice(dragEndIndex, 0, itemToMove);
-            
-            // Redraw the list with the new order
+            const itemToMove = filesData.splice(dragStartIndex, 1)[0];
+            filesData.splice(dragEndIndex, 0, itemToMove);
             renderFileList();
         }
 
-        // --- The Merge Logic (Updated to use filesArray) ---
-        mergeBtn.addEventListener('click', async () => {
-            if (filesArray.length < 2) {
-                statusDiv.innerText = "Please select at least 2 PDF files to combine.";
-                statusDiv.style.color = "red";
-                return;
+        // NEW: Function to turn "1, 3-5" into actual computer-readable page indexes [0, 2, 3, 4]
+        function parsePageRange(rangeStr, totalPages) {
+            if (!rangeStr.trim()) {
+                // If blank, return all pages (0 to totalPages-1)
+                return Array.from({length: totalPages}, (_, i) => i);
             }
+            
+            const indices = new Set(); // Use a Set to prevent duplicate pages
+            const parts = rangeStr.split(',');
+            
+            for (let part of parts) {
+                part = part.trim();
+                if (part.includes('-')) {
+                    let [start, end] = part.split('-');
+                    start = parseInt(start);
+                    end = parseInt(end);
+                    if (!isNaN(start) && !isNaN(end)) {
+                        // Ensure bounds are safe
+                        start = Math.max(1, start);
+                        end = Math.min(totalPages, end);
+                        for (let i = start; i <= end; i++) {
+                            indices.add(i - 1); // Subtract 1 because pdf-lib pages start at 0
+                        }
+                    }
+                } else {
+                    let num = parseInt(part);
+                    if (!isNaN(num) && num >= 1 && num <= totalPages) {
+                        indices.add(num - 1);
+                    }
+                }
+            }
+            // Return sorted array of numbers
+            return Array.from(indices).sort((a, b) => a - b);
+        }
 
-            statusDiv.innerText = "Combining PDFs... please wait.";
+        // Merge Logic
+        mergeBtn.addEventListener('click', async () => {
+            statusDiv.innerText = "Processing PDFs... please wait.";
             statusDiv.style.color = "blue";
             mergeBtn.disabled = true;
 
             try {
                 const mergedPdf = await PDFLib.PDFDocument.create();
 
-                // CHANGED: We now loop through our flexible filesArray
-                for (let i = 0; i < filesArray.length; i++) {
-                    const file = filesArray[i];
-                    const fileArrayBuffer = await file.arrayBuffer();
+                for (let i = 0; i < filesData.length; i++) {
+                    const item = filesData[i];
+                    const fileArrayBuffer = await item.file.arrayBuffer();
                     const pdfDoc = await PDFLib.PDFDocument.load(fileArrayBuffer);
-                    const copiedPages = await mergedPdf.copyPages(pdfDoc, pdfDoc.getPageIndices());
+                    
+                    const totalPages = pdfDoc.getPageCount();
+                    
+                    // Use our new function to figure out which pages to keep
+                    const pagesToKeep = parsePageRange(item.pages, totalPages);
+                    
+                    // Copy ONLY the specific pages
+                    const copiedPages = await mergedPdf.copyPages(pdfDoc, pagesToKeep);
                     
                     copiedPages.forEach((page) => {
                         mergedPdf.addPage(page);
@@ -189,14 +216,14 @@
                 }
 
                 const mergedPdfFile = await mergedPdf.save();
-                triggerDownload(mergedPdfFile, "combined_document.pdf");
+                triggerDownload(mergedPdfFile, "processed_document.pdf");
 
-                statusDiv.innerText = "Success! Your combined PDF is downloading.";
+                statusDiv.innerText = "Success! Your PDF is downloading.";
                 statusDiv.style.color = "green";
 
             } catch (error) {
                 console.error(error);
-                statusDiv.innerText = "An error occurred while combining the PDFs.";
+                statusDiv.innerText = "An error occurred. Make sure your page ranges are valid.";
                 statusDiv.style.color = "red";
             } finally {
                 mergeBtn.disabled = false;
